@@ -254,6 +254,17 @@ static void BasicUIMessage(const char *msg, int waitforkey)
 		PLATFORM_DisplayScreen();
 }
 
+/* Ask before leaving the emulator from the main menu.
+   Returns TRUE if the user pressed Esc again. */
+int UI_BASIC_ConfirmExit(void)
+{
+	ClearRectangle(0x94, 0, 10, 39, 13);
+	Box(0x9a, 0x94, 0, 10, 39, 13);
+	CenterPrint(0x94, 0x9a, "Wcisnij ESC jeszcze raz aby zakonczyc.", 11);
+	CenterPrint(0x94, 0x9a, "Inny klawisz aby anulowac.", 12);
+	return GetKeyPress() == 0x1b;
+}
+
 #ifdef GUI_SDL
 int GetRawKey(void)
 {

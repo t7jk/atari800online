@@ -4547,8 +4547,14 @@ void UI_Run(void)
 
 		switch (option) {
 		case -2:
-		case -1:				/* ESC key */
 			done = TRUE;
+			break;
+		case -1:				/* ESC key: confirm before quitting */
+			if (UI_BASIC_ConfirmExit()) {
+				Atari800_Exit(FALSE);
+				exit(0);
+			}
+			/* any other key: stay in the main menu */
 			break;
 		case UI_MENU_DISK:
 			DiskManagement();

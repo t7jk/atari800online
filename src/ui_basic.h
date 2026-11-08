@@ -7,6 +7,9 @@
    driver may call into this one to implement filtering */
 extern UI_tDriver UI_BASIC_driver;
 
+/* Shows "press Esc again to quit"; returns TRUE if Esc was pressed. */
+extern int UI_BASIC_ConfirmExit(void);
+
 /* for Windows CE and Dreamcast */
 #ifdef USE_UI_BASIC_ONSCREEN_KEYBOARD
 extern int UI_BASIC_in_kbui;
