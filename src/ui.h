@@ -92,6 +92,7 @@ int GetRawKey(void);
 
 #define UI_MENU_VIDEO_RECORDING  24
 #define UI_MENU_ONLINE           25
+#define UI_MENU_ONLINE_HISTORY   26
 
 /* Structure of menu item. Each menu is just an array of items of this structure
    terminated by UI_MENU_END */

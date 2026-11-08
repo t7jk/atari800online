@@ -52,6 +52,8 @@
 #define AO_MIN_GAP_MS 1100UL
 #define AO_CACHE_MAX_AGE (30L * 24 * 3600)
 #define AO_REFRESH_ID 9000
+#define AO_HISTORY_ID 9001
+#define AO_HISTORY_MAX 200
 #define AO_MAX_ENTRIES 4000
 #define AO_MAX_HREF   1024
 #define AO_MAX_LABEL  200
@@ -617,16 +619,11 @@ static int CachePath(int kind, const char *letter, const char *href, char *out, 
 	return (size_t) snprintf(out, size, "%s/cache/%s/%s.txt", base, lname, tname) < size;
 }
 
-/* Loads list from a cache file if it exists and is fresh. */
-static int LoadCache(const char *path, List *list)
+/* Reads a "label TAB href" file into list. FALSE if missing or empty. */
+static int ReadListFile(const char *path, List *list)
 {
-	struct stat st;
 	FILE *f;
-	char line[AO_MAX_HREF + AO_MAX_LABEL + 8];
-	if (stat(path, &st) != 0 || st.st_size == 0)
-		return FALSE;
-	if (difftime(time(NULL), st.st_mtime) > (double) AO_CACHE_MAX_AGE)
-		return FALSE;
+	char line[FILENAME_MAX + AO_MAX_HREF + AO_MAX_LABEL + 8];
 	f = fopen(path, "r");
 	if (f == NULL)
 		return FALSE;
@@ -651,6 +648,17 @@ static int LoadCache(const char *path, List *list)
 		return FALSE;
 	}
 	return TRUE;
+}
+
+/* Loads list from a cache file if it exists and is fresh. */
+static int LoadCache(const char *path, List *list)
+{
+	struct stat st;
+	if (stat(path, &st) != 0 || st.st_size == 0)
+		return FALSE;
+	if (difftime(time(NULL), st.st_mtime) > (double) AO_CACHE_MAX_AGE)
+		return FALSE;
+	return ReadListFile(path, list);
 }
 
 static void SaveCache(const char *path, const List *list)
@@ -728,50 +736,203 @@ static int GetList(int kind, const char *letter, const char *href, int refresh, 
 	return TRUE;
 }
 
+/* ------------------------------------------------------------ history
+   history.txt (under StorageBase()) lists started games, newest first.
+   Each line: label TAB local path of the started file. */
+
+static void HistoryPath(char *out, size_t size)
+{
+	char base[FILENAME_MAX];
+	StorageBase(base, sizeof(base));
+	snprintf(out, size, "%s/history.txt", base);
+}
+
+static int LoadHistory(List *list)
+{
+	char path[FILENAME_MAX];
+	list->e = NULL;
+	list->n = 0;
+	HistoryPath(path, sizeof(path));
+	return ReadListFile(path, list);
+}
+
+/* Writes history with (label, file) first; any older entry with the same
+   file is dropped. file == NULL just rewrites without entry skip_index. */
+static void SaveHistory(const char *label, const char *file, int skip_index)
+{
+	List old;
+	List nl = {NULL, 0};
+	char path[FILENAME_MAX];
+	int i;
+	LoadHistory(&old);
+	if (file != NULL)
+		AddEntry(&nl, label, file);
+	for (i = 0; i < old.n && nl.n < AO_HISTORY_MAX; i++) {
+		if (i == skip_index)
+			continue;
+		AddEntry(&nl, old.e[i].label, old.e[i].href);
+	}
+	HistoryPath(path, sizeof(path));
+	if (nl.n == 0)
+		remove(path);
+	else
+		SaveCache(path, &nl);
+	FreeList(&old);
+	FreeList(&nl);
+}
+
+static void AddToHistory(const char *title, const char *file_label, const char *path)
+{
+	char label[AO_MAX_LABEL];
+	snprintf(label, sizeof(label), "%s - %s", title, file_label);
+	SaveHistory(label, path, -1);
+}
+
+/* -------------------------------------------------------- last position
+   last.txt (under StorageBase()): hrefs of the letter, title and file of
+   the last game started from the browser, one per line. */
+
+static void LastPath(char *out, size_t size)
+{
+	char base[FILENAME_MAX];
+	StorageBase(base, sizeof(base));
+	snprintf(out, size, "%s/last.txt", base);
+}
+
+static void SaveLast(const char *letter, const char *title, const char *file)
+{
+	char path[FILENAME_MAX];
+	FILE *f;
+	int ok;
+	LastPath(path, sizeof(path));
+	f = fopen(path, "w");
+	if (f == NULL)
+		return;
+	ok = fprintf(f, "%s\n%s\n%s\n", letter, title, file) >= 0;
+	if (fclose(f) != 0 || !ok)
+		remove(path);
+}
+
+/* Reads the three hrefs; missing lines become empty strings. */
+static int LoadLast(char hrefs[3][AO_MAX_HREF])
+{
+	char path[FILENAME_MAX];
+	FILE *f;
+	int i;
+	LastPath(path, sizeof(path));
+	f = fopen(path, "r");
+	if (f == NULL)
+		return FALSE;
+	for (i = 0; i < 3; i++) {
+		size_t len;
+		hrefs[i][0] = '\0';
+		if (fgets(hrefs[i], AO_MAX_HREF, f) == NULL)
+			continue;
+		len = strlen(hrefs[i]);
+		while (len > 0 && (hrefs[i][len - 1] == '\n' || hrefs[i][len - 1] == '\r'))
+			hrefs[i][--len] = '\0';
+	}
+	fclose(f);
+	return hrefs[0][0] != '\0';
+}
+
+static int FindHref(const List *l, const char *href)
+{
+	int i;
+	for (i = 0; i < l->n; i++)
+		if (strcmp(l->e[i].href, href) == 0)
+			return i;
+	return -1;
+}
+
 /* ----------------------------------------------------------------- UI */
 
-/* Shows list l with a "[Refresh this list]" item on top. Returns chosen
-   index, -1 on cancel or -2 if refresh was requested. *pos is the initial
-   and (updated) remembered position. */
-static int SelectFromList(const char *title, const List *l, int *pos)
+#define SEL_REFRESH 1 /* "[Refresh this list]" item on top */
+#define SEL_HISTORY 2 /* "[Previously downloaded]" item on top */
+
+static void SetItem(UI_tMenuItem *m, UWORD flags, int retval, char *text)
+{
+	m->flags = flags;
+	m->retval = (SWORD) retval;
+	m->prefix = NULL;
+	m->item = text;
+	m->suffix = NULL;
+}
+
+/* Shows list l, with the extra items selected by flags on top. Returns
+   chosen index, -1 on cancel, -2 if refresh or -3 if history was
+   requested. *pos is the initial and (updated) remembered position. */
+static int SelectFromList(const char *title, const List *l, int *pos, int flags)
 {
 	UI_tMenuItem *menu;
 	int i;
+	int k = 0;
 	int choice;
 	static char refresh_label[] = "[Refresh this list]";
+	static char history_label[] = "[Previously downloaded games]";
 
-	menu = (UI_tMenuItem *) malloc((l->n + 2) * sizeof(UI_tMenuItem));
+	menu = (UI_tMenuItem *) malloc((l->n + 3) * sizeof(UI_tMenuItem));
 	if (menu == NULL) {
 		ShowMessage("Out of memory", 1);
 		return -1;
 	}
-	menu[0].flags = UI_ITEM_ACTION;
-	menu[0].retval = AO_REFRESH_ID;
-	menu[0].prefix = NULL;
-	menu[0].item = refresh_label;
-	menu[0].suffix = NULL;
-	for (i = 0; i < l->n; i++) {
-		menu[i + 1].flags = UI_ITEM_ACTION;
-		menu[i + 1].retval = (SWORD) i;
-		menu[i + 1].prefix = NULL;
-		menu[i + 1].item = l->e[i].label;
-		menu[i + 1].suffix = NULL;
-	}
-	menu[l->n + 1].flags = UI_ITEM_END;
-	menu[l->n + 1].retval = 0;
-	menu[l->n + 1].prefix = NULL;
-	menu[l->n + 1].item = NULL;
-	menu[l->n + 1].suffix = NULL;
+	if (flags & SEL_HISTORY)
+		SetItem(&menu[k++], UI_ITEM_ACTION, AO_HISTORY_ID, history_label);
+	if (flags & SEL_REFRESH)
+		SetItem(&menu[k++], UI_ITEM_ACTION, AO_REFRESH_ID, refresh_label);
+	for (i = 0; i < l->n; i++)
+		SetItem(&menu[k++], UI_ITEM_ACTION, i, l->e[i].label);
+	SetItem(&menu[k], UI_ITEM_END, 0, NULL);
 	if (*pos < 0 || *pos >= l->n)
 		*pos = 0;
 	choice = UI_driver->fSelect(title, 0, *pos, menu, NULL);
 	free(menu);
 	if (choice == AO_REFRESH_ID)
 		return -2;
+	if (choice == AO_HISTORY_ID)
+		return -3;
 	if (choice < 0)
 		return -1;
 	*pos = choice;
 	return choice;
+}
+
+/* Menu of previously started games. Works offline. Returns TRUE if a
+   program was started. */
+static int BrowseHistory(void)
+{
+	int pos = 0;
+	for (;;) {
+		List h;
+		int c;
+		if (!LoadHistory(&h)) {
+			ShowMessage("No games downloaded yet", 1);
+			return FALSE;
+		}
+		c = SelectFromList("Previously downloaded games", &h, &pos, 0);
+		if (c < 0) {
+			FreeList(&h);
+			return FALSE;
+		}
+		if (FileSize(h.e[c].href) <= 0) {
+			ShowMessage("File no longer exists - removed from history", 1);
+			SaveHistory(NULL, NULL, c);
+			FreeList(&h);
+			continue;
+		}
+		if (UI_AutostartPath(h.e[c].href)) {
+			/* move to the top */
+			SaveHistory(h.e[c].label, h.e[c].href, -1);
+			FreeList(&h);
+			return TRUE;
+		}
+		FreeList(&h);
+	}
+}
+
+int ATARIONLINE_History(void)
+{
+	return BrowseHistory();
 }
 
 int ATARIONLINE_Browse(void)
@@ -789,13 +950,55 @@ int ATARIONLINE_Browse(void)
 	int result = FALSE;
 	char caption[AO_MAX_LABEL + 32];
 
-	if (!GetList(KIND_LETTERS, NULL, AO_ROOT_HREF, FALSE, &letters))
-		return FALSE;
+	if (!GetList(KIND_LETTERS, NULL, AO_ROOT_HREF, FALSE, &letters)) {
+		/* offline: previously downloaded games still work */
+		List h;
+		if (!LoadHistory(&h))
+			return FALSE;
+		FreeList(&h);
+		return BrowseHistory();
+	}
+
+	/* Go back to where the last started game was. Lists normally come
+	   from the disk cache, so this costs no network requests. */
+	{
+		char last[3][AO_MAX_HREF];
+		if (LoadLast(last) && (letter = FindHref(&letters, last[0])) >= 0) {
+			pos[0] = letter;
+			last_letter = letter;
+			if (last[1][0] != '\0'
+			    && GetList(KIND_TITLES, letters.e[letter].label, letters.e[letter].href, FALSE, &titles)) {
+				level = 1;
+				title = FindHref(&titles, last[1]);
+				if (title >= 0) {
+					pos[1] = title;
+					last_title = title;
+					if (last[2][0] != '\0'
+					    && GetList(KIND_FILES, letters.e[letter].label, titles.e[title].href, FALSE, &files)) {
+						level = 2;
+						if (FindHref(&files, last[2]) >= 0)
+							pos[2] = FindHref(&files, last[2]);
+					}
+				}
+				else
+					title = 0;
+			}
+		}
+		else
+			letter = 0;
+	}
 
 	for (;;) {
 		int c;
 		if (level == 0) {
-			c = SelectFromList("Online Games - pick a letter", &letters, &pos[0]);
+			c = SelectFromList("Online Games - pick a letter", &letters, &pos[0], SEL_HISTORY | SEL_REFRESH);
+			if (c == -3) {
+				if (BrowseHistory()) {
+					result = TRUE;
+					break;
+				}
+				continue;
+			}
 			if (c == -2) {
 				List nl;
 				if (GetList(KIND_LETTERS, NULL, AO_ROOT_HREF, TRUE, &nl)) {
@@ -831,7 +1034,7 @@ int ATARIONLINE_Browse(void)
 				refresh = FALSE;
 			}
 			snprintf(caption, sizeof(caption), "Online Games - %s", letters.e[letter].label);
-			c = SelectFromList(caption, &titles, &pos[1]);
+			c = SelectFromList(caption, &titles, &pos[1], SEL_REFRESH);
 			if (c == -2) {
 				refresh = TRUE;
 				continue;
@@ -862,7 +1065,7 @@ int ATARIONLINE_Browse(void)
 				files = nl;
 				refresh = FALSE;
 			}
-			c = SelectFromList(titles.e[title].label, &files, &pos[2]);
+			c = SelectFromList(titles.e[title].label, &files, &pos[2], SEL_REFRESH);
 			if (c == -2) {
 				refresh = TRUE;
 				continue;
@@ -877,6 +1080,8 @@ int ATARIONLINE_Browse(void)
 			if (!UnpackIfZip(path, sizeof(path)))
 				continue;
 			if (UI_AutostartPath(path)) {
+				AddToHistory(titles.e[title].label, files.e[c].label, path);
+				SaveLast(letters.e[letter].href, titles.e[title].href, files.e[c].href);
 				result = TRUE;
 				break;
 			}
