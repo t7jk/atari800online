@@ -267,7 +267,7 @@ atari800_SOURCES += netsio.c netsio.h
 endif
 endif
 if WANT_DOWNLOAD
-atari800_SOURCES += download.c download.h
+atari800_SOURCES += download.c download.h atarionline.c atarionline.h
 endif
 if WANT_PBI_XLD
 if WITH_SOUND

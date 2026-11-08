@@ -1345,6 +1345,11 @@ int PLATFORM_Keyboard(void)
 			case SDLK_r:
 				UI_alt_function = UI_MENU_RUN;
 				break;
+#ifdef HAVE_DOWNLOAD
+			case SDLK_n:
+				UI_alt_function = UI_MENU_ONLINE;
+				break;
+#endif
 			case SDLK_y:
 				UI_alt_function = UI_MENU_SYSTEM;
 				break;

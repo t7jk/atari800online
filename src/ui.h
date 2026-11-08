@@ -29,6 +29,8 @@
 #include "atari.h"
 
 /* Three legitimate entries to UI module. */
+/* Starts (boots) a file like "Run Atari Program" does; TRUE if started. */
+int UI_AutostartPath(const char *filename);
 int UI_SelectCartType(int k);
 int UI_SelectCartTypeBetween(int *types);
 int UI_Initialise(int *argc, char *argv[]);
@@ -89,6 +91,7 @@ int GetRawKey(void);
 #define UI_MENU_SAVE_CONFIG      23
 
 #define UI_MENU_VIDEO_RECORDING  24
+#define UI_MENU_ONLINE           25
 
 /* Structure of menu item. Each menu is just an array of items of this structure
    terminated by UI_MENU_END */

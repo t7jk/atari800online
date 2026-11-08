@@ -9,6 +9,7 @@
 #include <curl/curl.h>
 #include <zlib.h>
 #include "log.h"
+#include "atari.h"
 #include "util.h"
 
 
@@ -77,29 +78,60 @@ static void MkdirParent(char *path)
 	}
 }
 
-const char *Download_And_Extract(const char *url, const char *exts[], const char *dest_dir)
+int Download_ToMemory(const char *url, unsigned char **data, size_t *size, long timeout_secs)
 {
 	CURL *curl;
 	CURLcode res;
 	struct MemoryBuffer buf = {NULL, 0};
-	size_t offset;
-	static char first_file[FILENAME_MAX] = "";
 
+	*data = NULL;
+	*size = 0;
 	curl = curl_easy_init();
 	if (curl == NULL)
-		return NULL;
+		return FALSE;
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "atari800");
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
+	if (timeout_secs > 0)
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_secs);
 	res = curl_easy_perform(curl);
 	curl_easy_cleanup(curl);
 	if (res != CURLE_OK) {
 		Log_print("Download failed: %s", curl_easy_strerror(res));
 		free(buf.data);
-		return NULL;
+		return FALSE;
 	}
+	*data = buf.data;
+	*size = buf.size;
+	return TRUE;
+}
+
+const char *Download_And_Extract(const char *url, const char *exts[], const char *dest_dir)
+{
+	unsigned char *data;
+	size_t size;
+	const char *result;
+
+	if (!Download_ToMemory(url, &data, &size, 0))
+		return NULL;
+	result = Download_ExtractZipBuffer(data, size, exts, dest_dir);
+	free(data);
+	return result;
+}
+
+const char *Download_ExtractZipBuffer(const unsigned char *zipdata, size_t zipsize, const char *exts[], const char *dest_dir)
+{
+	struct MemoryBuffer buf;
+	size_t offset;
+	static char first_file[FILENAME_MAX] = "";
+
+	buf.data = (unsigned char *)zipdata;
+	buf.size = zipsize;
+	first_file[0] = '\0';
 
 	/* parse zip local file headers */
 	offset = 0;
@@ -176,7 +208,7 @@ const char *Download_And_Extract(const char *url, const char *exts[], const char
 			}
 
 			header_size = 30 + name_len + extra_len;
-			if (offset + header_size > buf.size)
+			if (offset + header_size > buf.size || name_len == 0)
 				break;
 
 			name = malloc(name_len + 1);
@@ -187,6 +219,10 @@ const char *Download_And_Extract(const char *url, const char *exts[], const char
 
 			offset += header_size;
 
+			if (offset + comp_size > buf.size) {
+				free(name);
+				break;
+			}
 			if (comp_size > 0 || uncomp_size > 0) {
 				out_data = malloc(uncomp_size > 0 ? uncomp_size : 1);
 				if (out_data == NULL) {
@@ -196,8 +232,8 @@ const char *Download_And_Extract(const char *url, const char *exts[], const char
 				out_size = 0;
 
 				if (compression == 0) {
-					memcpy(out_data, buf.data + offset, comp_size);
-					out_size = comp_size;
+					out_size = comp_size < uncomp_size ? comp_size : uncomp_size;
+					memcpy(out_data, buf.data + offset, out_size);
 				}
 				else if (compression == 8) {
 					z_stream strm;
@@ -248,7 +284,6 @@ const char *Download_And_Extract(const char *url, const char *exts[], const char
 			free(name);
 		}
 
-		free(buf.data);
 		if (extracted == 0) {
 			Log_print("No matching files found in archive");
 			return NULL;

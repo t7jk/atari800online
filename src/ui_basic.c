@@ -440,22 +440,25 @@ static int Select(int default_item, int nitems, const char *item[],
 	}
 }
 
+/* Large enough for long dynamic lists (e.g. online game catalogue). */
+#define UI_BASIC_MAX_ITEMS 4100
+
 static int BasicUISelect(const char *title, int flags, int default_item, const UI_tMenuItem *menu, int *seltype)
 {
 	int nitems;
 	int index;
 	const UI_tMenuItem *pmenu;
-	static const char *prefix[100];
-	static const char *item[100];
-	static const char *suffix[100];
-	static const char *tip[100];
-	static int nonselectable[100];
+	static const char *prefix[UI_BASIC_MAX_ITEMS];
+	static const char *item[UI_BASIC_MAX_ITEMS];
+	static const char *suffix[UI_BASIC_MAX_ITEMS];
+	static const char *tip[UI_BASIC_MAX_ITEMS];
+	static int nonselectable[UI_BASIC_MAX_ITEMS];
 	int w;
 	int x1, y1, x2, y2;
 
 	nitems = 0;
 	index = 0;
-	for (pmenu = menu; pmenu->flags != UI_ITEM_END; pmenu++) {
+	for (pmenu = menu; pmenu->flags != UI_ITEM_END && nitems < UI_BASIC_MAX_ITEMS; pmenu++) {
 		if (pmenu->flags != UI_ITEM_HIDDEN) {
 			prefix[nitems] = pmenu->prefix;
 			item[nitems] = pmenu->item;

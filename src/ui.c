@@ -33,6 +33,9 @@
 #include "antic.h"
 #include "artifact.h"
 #include "atari.h"
+#ifdef HAVE_DOWNLOAD
+#include "atarionline.h"
+#endif
 #include "binload.h"
 #include "cartridge.h"
 #include "cassette.h"
@@ -1483,25 +1486,30 @@ static void VideoRecording(void)
 }
 #endif /* VIDEO_RECORDING */
 
+int UI_AutostartPath(const char *filename)
+{
+	int file_type = AFILE_OpenFile(filename, TRUE, 1, FALSE);
+	if (file_type != 0) {
+		int rom_kb;
+		if ((file_type & 0xff) == AFILE_ROM
+		    && (rom_kb = (file_type & ~0xff) >> 8) != 0) {
+			int cart_type = UI_SelectCartType(rom_kb);
+			if (cart_type == CARTRIDGE_NONE)
+				/* User chose nothing - go back to parent menu. */
+				return FALSE;
+			CARTRIDGE_SetTypeAutoReboot(&CARTRIDGE_main, cart_type);
+		}
+		return TRUE;
+	}
+	CantLoad(filename);
+	return FALSE;
+}
+
 static int AutostartFile(void)
 {
 	static char filename[FILENAME_MAX];
-	if (UI_driver->fGetLoadFilename(filename, UI_atari_files_dir, UI_n_atari_files_dir)) {
-		int file_type = AFILE_OpenFile(filename, TRUE, 1, FALSE);
-		if (file_type != 0) {
-			int rom_kb;
-			if ((file_type & 0xff) == AFILE_ROM
-			    && (rom_kb = (file_type & ~0xff) >> 8) != 0) {
-				int cart_type = UI_SelectCartType(rom_kb);
-				if (cart_type == CARTRIDGE_NONE)
-					/* User chose nothing - go back to parent menu. */
-					return FALSE;
-				CARTRIDGE_SetTypeAutoReboot(&CARTRIDGE_main, cart_type);
-			}
-			return TRUE;
-		}
-		CantLoad(filename);
-	}
+	if (UI_driver->fGetLoadFilename(filename, UI_atari_files_dir, UI_n_atari_files_dir))
+		return UI_AutostartPath(filename);
 	return FALSE;
 }
 
@@ -4457,6 +4465,9 @@ void UI_Run(void)
 {
 	static UI_tMenuItem menu_array[] = {
 		UI_MENU_FILESEL_ACCEL(UI_MENU_RUN, "Run Atari Program", "Alt+R"),
+#ifdef HAVE_DOWNLOAD
+		UI_MENU_SUBMENU_ACCEL(UI_MENU_ONLINE, "Online Games (atarionline.pl)", "Alt+N"),
+#endif
 		UI_MENU_SUBMENU_ACCEL(UI_MENU_DISK, "Disk Management", "Alt+D"),
 		UI_MENU_SUBMENU_ACCEL(UI_MENU_CARTRIDGE, "Cartridge Management", "Alt+C"),
 		UI_MENU_SUBMENU_ACCEL(UI_MENU_CASSETTE, "Tape Management", "Alt+T"),
@@ -4550,6 +4561,12 @@ void UI_Run(void)
 			if (AutostartFile())
 				done = TRUE;	/* reboot immediately */
 			break;
+#ifdef HAVE_DOWNLOAD
+		case UI_MENU_ONLINE:
+			if (ATARIONLINE_Browse())
+				done = TRUE;	/* reboot immediately */
+			break;
+#endif
 		case UI_MENU_CASSETTE:
 			TapeManagement();
 			break;
