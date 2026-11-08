@@ -274,8 +274,8 @@ int UI_BASIC_EscapeHeldToExit(void)
 		if (held >= UI_BASIC_EXIT_HINT && !shown) {
 			ClearRectangle(0x94, 0, 10, 39, 13);
 			Box(0x9a, 0x94, 0, 10, 39, 13);
-			CenterPrint(0x94, 0x9a, "Trzymaj ESC aby zakonczyc emulator.", 11);
-			CenterPrint(0x94, 0x9a, "Pusc ESC aby wrocic do gry.", 12);
+			CenterPrint(0x94, 0x9a, "Keep holding Esc to quit.", 11);
+			CenterPrint(0x94, 0x9a, "Release Esc to return to emulation.", 12);
 			PLATFORM_DisplayScreen();
 			shown = TRUE;
 		}
