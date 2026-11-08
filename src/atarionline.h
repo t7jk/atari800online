@@ -11,10 +11,6 @@
    (the UI should then be left), FALSE otherwise. */
 int ATARIONLINE_Browse(void);
 
-/* Menu of games previously started from the browser (works offline).
-   Returns TRUE if a program was started. */
-int ATARIONLINE_History(void);
-
 #endif /* HAVE_DOWNLOAD */
 
 #endif /* ATARIONLINE_H_ */

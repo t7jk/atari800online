@@ -38,6 +38,7 @@
 #include <unistd.h>
 #endif
 #include <time.h>
+#include <dirent.h>
 
 #include "atari.h"
 #include "cfg.h"
@@ -849,6 +850,7 @@ static int FindHref(const List *l, const char *href)
 
 #define SEL_REFRESH 1 /* "[Refresh this list]" item on top */
 #define SEL_HISTORY 2 /* "[Previously downloaded]" item on top */
+#define SEL_DELETE  4 /* D/Delete key deletes the selected entry */
 
 static void SetItem(UI_tMenuItem *m, UWORD flags, int retval, char *text)
 {
@@ -860,14 +862,15 @@ static void SetItem(UI_tMenuItem *m, UWORD flags, int retval, char *text)
 }
 
 /* Shows list l, with the extra items selected by flags on top. Returns
-   chosen index, -1 on cancel, -2 if refresh or -3 if history was
-   requested. *pos is the initial and (updated) remembered position. */
+   chosen index, -1 on cancel, -2 if refresh, -3 if history or -4 if
+   deleting the entry *pos was requested. *pos is the initial and (updated) remembered position. */
 static int SelectFromList(const char *title, const List *l, int *pos, int flags)
 {
 	UI_tMenuItem *menu;
 	int i;
 	int k = 0;
 	int choice;
+	int seltype = UI_USER_SELECT;
 	static char refresh_label[] = "[Refresh this list]";
 	static char history_label[] = "[Previously downloaded games]";
 
@@ -885,7 +888,8 @@ static int SelectFromList(const char *title, const List *l, int *pos, int flags)
 	SetItem(&menu[k], UI_ITEM_END, 0, NULL);
 	if (*pos < 0 || *pos >= l->n)
 		*pos = 0;
-	choice = UI_driver->fSelect(title, 0, *pos, menu, NULL);
+	choice = UI_driver->fSelect(title, (flags & SEL_DELETE) ? UI_SELECT_DELETE : 0,
+	                            *pos, menu, &seltype);
 	free(menu);
 	if (choice == AO_REFRESH_ID)
 		return -2;
@@ -894,7 +898,56 @@ static int SelectFromList(const char *title, const List *l, int *pos, int flags)
 	if (choice < 0)
 		return -1;
 	*pos = choice;
+	if ((flags & SEL_DELETE) && seltype == UI_USER_DELETE)
+		return -4;
 	return choice;
+}
+
+/* Yes/No popup; the question is a non-selectable first row (popups
+   have no caption). */
+static int Confirm(char *question)
+{
+	static char no_label[] = "No";
+	static char yes_label[] = "Yes";
+	UI_tMenuItem menu[4];
+	SetItem(&menu[0], UI_ITEM_ACTION, -10, question);
+	SetItem(&menu[1], UI_ITEM_ACTION, 0, no_label);
+	SetItem(&menu[2], UI_ITEM_ACTION, 1, yes_label);
+	SetItem(&menu[3], UI_ITEM_END, 0, NULL);
+	return UI_driver->fSelect(question, UI_SELECT_POPUP, 0, menu, NULL) == 1;
+}
+
+/* Deletes a downloaded game. For a game unpacked from a ZIP (path is
+   <zip>.d/<file>) the whole <zip>.d directory and the ZIP are removed. */
+static void DeleteGame(const char *path)
+{
+	char dir[FILENAME_MAX];
+	char *slash;
+	size_t len;
+	remove(path);
+	snprintf(dir, sizeof(dir), "%s", path);
+	slash = strrchr(dir, '/');
+	if (slash == NULL)
+		return;
+	*slash = '\0';
+	len = strlen(dir);
+	if (len > 2 && strcmp(dir + len - 2, ".d") == 0) {
+		DIR *d = opendir(dir);
+		if (d != NULL) {
+			struct dirent *e;
+			char file[FILENAME_MAX];
+			while ((e = readdir(d)) != NULL) {
+				if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+					continue;
+				snprintf(file, sizeof(file), "%s/%s", dir, e->d_name);
+				remove(file);
+			}
+			closedir(d);
+		}
+		rmdir(dir);
+		dir[len - 2] = '\0';
+		remove(dir); /* the downloaded ZIP */
+	}
 }
 
 /* Menu of previously started games. Works offline. Returns TRUE if a
@@ -909,7 +962,19 @@ static int BrowseHistory(void)
 			ShowMessage("No games downloaded yet", 1);
 			return FALSE;
 		}
-		c = SelectFromList("Previously downloaded games", &h, &pos, 0);
+		c = SelectFromList("Previously downloaded games", &h, &pos, SEL_DELETE);
+		if (c == -4) {
+			char question[AO_MAX_LABEL + 16];
+			snprintf(question, sizeof(question), "Delete %s?", h.e[pos].label);
+			if (Confirm(question)) {
+				DeleteGame(h.e[pos].href);
+				SaveHistory(NULL, NULL, pos);
+				if (pos >= h.n - 1 && pos > 0)
+					pos--;
+			}
+			FreeList(&h);
+			continue;
+		}
 		if (c < 0) {
 			FreeList(&h);
 			return FALSE;
@@ -928,11 +993,6 @@ static int BrowseHistory(void)
 		}
 		FreeList(&h);
 	}
-}
-
-int ATARIONLINE_History(void)
-{
-	return BrowseHistory();
 }
 
 int ATARIONLINE_Browse(void)
@@ -1034,7 +1094,14 @@ int ATARIONLINE_Browse(void)
 				refresh = FALSE;
 			}
 			snprintf(caption, sizeof(caption), "Online Games - %s", letters.e[letter].label);
-			c = SelectFromList(caption, &titles, &pos[1], SEL_REFRESH);
+			c = SelectFromList(caption, &titles, &pos[1], SEL_HISTORY | SEL_REFRESH);
+			if (c == -3) {
+				if (BrowseHistory()) {
+					result = TRUE;
+					break;
+				}
+				continue;
+			}
 			if (c == -2) {
 				refresh = TRUE;
 				continue;
@@ -1065,7 +1132,14 @@ int ATARIONLINE_Browse(void)
 				files = nl;
 				refresh = FALSE;
 			}
-			c = SelectFromList(titles.e[title].label, &files, &pos[2], SEL_REFRESH);
+			c = SelectFromList(titles.e[title].label, &files, &pos[2], SEL_HISTORY | SEL_REFRESH);
+			if (c == -3) {
+				if (BrowseHistory()) {
+					result = TRUE;
+					break;
+				}
+				continue;
+			}
 			if (c == -2) {
 				refresh = TRUE;
 				continue;

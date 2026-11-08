@@ -301,7 +301,7 @@ static int Select(int default_item, int nitems, const char *item[],
                   const char *tip[], const int nonselectable[],
                   int nrows, int ncolumns, int xoffset, int yoffset,
                   int itemwidth, int drag, const char *global_tip,
-                  int *seltype, int joy_buttons)
+                  int *seltype, int joy_buttons, int del_key)
 {
 	int offset = 0;
 	int index = default_item;
@@ -332,6 +332,11 @@ static int Select(int default_item, int nitems, const char *item[],
 			p = Util_stpcpy(p, item[i]);
 			if (suffix != NULL && suffix[i] != NULL) {
 				char *q = szbuf + itemwidth - strlen(suffix[i]);
+				if (p > q && q > szbuf) {
+					/* item too long: shorten it so the suffix stays visible */
+					p = q - 1;
+					*p++ = ' ';
+				}
 				while (p < q)
 					*p++ = ' ';
 				strcpy(p, suffix[i]);
@@ -353,7 +358,8 @@ static int Select(int default_item, int nitems, const char *item[],
 		}
 		if (tip != NULL && tip[index] != NULL)
 			message = tip[index];
-		else if (itemwidth < 38 && (int) strlen(item[index]) > itemwidth)
+		else if (itemwidth < 38 && (int) strlen(item[index]) >
+		         itemwidth - (suffix != NULL && suffix[index] != NULL ? (int) strlen(suffix[index]) + 1 : 0))
 			/* the selected item was shortened */
 			message = item[index];
 		if (message != NULL)
@@ -454,6 +460,14 @@ static int Select(int default_item, int nitems, const char *item[],
 				return index;
 			case 0x1b:				/* Esc=Cancel */
 				return -1;
+			case 0xfe:				/* Delete */
+			case 'd':
+			case 'D':
+				if (del_key) {
+					*seltype = UI_USER_DELETE;
+					return index;
+				}
+				/* FALLTHROUGH */
 			default:
 				if (drag || ascii <= 0x20 || ascii >= 0x7f)
 					continue;
@@ -553,10 +567,14 @@ static int BasicUISelect(const char *title, int flags, int default_item, const U
 		y2 = 23;
 
 	Box(0x9a, 0x94, x1, y1, x2, y2);
+	/* with UI_SELECT_DELETE the last row of the box holds the key legend */
 	index = Select(index, nitems, item, prefix, suffix, tip, nonselectable,
-	                y2 - y1 - 1, 1, x1 + 1, y1 + 1, w,
-	                (flags & UI_SELECT_DRAG) ? TRUE : FALSE, NULL, seltype,
-	                flags & UI_SELECT_JOY_BTN ? TRUE : FALSE);
+	                y2 - y1 - 1 - ((flags & UI_SELECT_DELETE) ? 1 : 0), 1, x1 + 1, y1 + 1, w,
+	                (flags & UI_SELECT_DRAG) ? TRUE : FALSE,
+	                (flags & UI_SELECT_DELETE) ? "Enter: run   D: delete   Esc: back" : NULL,
+	                seltype,
+	                flags & UI_SELECT_JOY_BTN ? TRUE : FALSE,
+	                (flags & UI_SELECT_DELETE) ? TRUE : FALSE);
 	if (index < 0)
 		return index;
 	for (pmenu = menu; pmenu->flags != UI_ITEM_END; pmenu++) {
@@ -601,7 +619,7 @@ static int BasicUISelectInt(int default_value, int min_value, int max_value)
 	y2 = y1 + nrows + 1;
 	Box(0x9a, 0x94, x1, y1, x2, y2);
 	value = Select((default_value >= min_value && default_value <= max_value) ? default_value - min_value : 0,
-		nitems, items, NULL, NULL, NULL, NULL, nrows, ncolumns, x1 + 1, y1 + 1, 2, FALSE, NULL, NULL, FALSE);
+		nitems, items, NULL, NULL, NULL, NULL, nrows, ncolumns, x1 + 1, y1 + 1, 2, FALSE, NULL, NULL, FALSE, FALSE);
 	return value >= 0 ? value + min_value : default_value;
 }
 
@@ -873,8 +891,11 @@ static void FilenamesSort(const char **start, const char **end)
 	}
 }
 
+static void FileSizesFree(void);
+
 static void FilenamesFree(void)
 {
+	FileSizesFree();
 	while (n_filenames > 0)
 		free((void *) filenames[--n_filenames]);
 	free((void *) filenames);
@@ -972,6 +993,52 @@ static void strcatchr(char *s, char c)
 	s[1] = '\0';
 }
 
+/* File sizes shown in the file selector: "128" = 128 KB, "12M" = 12 MB.
+   One label per entry of filenames, NULL for directories. */
+static const char **filesizes = NULL;
+static char *filesize_buf = NULL;
+
+static void FileSizesFree(void)
+{
+	free((void *) filesizes);
+	free(filesize_buf);
+	filesizes = NULL;
+	filesize_buf = NULL;
+}
+
+static void FileSizesGet(const char *dir)
+{
+	int i;
+	FileSizesFree();
+#ifdef HAVE_SYS_STAT_H
+	if (n_filenames <= 0)
+		return;
+	filesizes = (const char **) Util_malloc(n_filenames * sizeof(const char *));
+	filesize_buf = (char *) Util_malloc(n_filenames * 8);
+	for (i = 0; i < n_filenames; i++) {
+		char full[FILENAME_MAX];
+		struct stat st;
+		char *label = filesize_buf + i * 8;
+		filesizes[i] = NULL;
+		if (filenames[i][0] == '[')
+			continue; /* directory or drive */
+		Util_catpath(full, dir, filenames[i]);
+		if (stat(full, &st) != 0)
+			continue;
+		{
+			unsigned long kb = ((unsigned long) st.st_size + 1023) / 1024;
+			if (kb < 10000)
+				snprintf(label, 8, "%lu", kb);
+			else if (kb < 1024UL * 1000)
+				snprintf(label, 8, "%luM", (kb + 1023) / 1024);
+			else
+				snprintf(label, 8, "%luG", (kb / 1024 + 1023) / 1024);
+		}
+		filesizes[i] = label;
+	}
+#endif
+}
+
 /* Select file or directory.
    The result is returned in path and path is where selection begins (i.e. it must be initialized).
    pDirectories are "favourite" directories (there are nDirectories of them). */
@@ -1040,6 +1107,8 @@ static int FileSelector(char *path, int select_dir, char pDirectories[][FILENAME
 			}
 		}
 
+		FileSizesGet(current_dir);
+
 		if (highlighted_file[0] != '\0') {
 			for (i = 0; i < n_filenames; i++) {
 				if (strcmp(filenames[i], highlighted_file) == 0) {
@@ -1057,10 +1126,10 @@ static int FileSelector(char *path, int select_dir, char pDirectories[][FILENAME
 			TitleScreen(current_dir);
 			Box(0x9a, 0x94, 0, 1, 39, 23);
 
-			index = Select(index, n_filenames, filenames, NULL, NULL, NULL, NULL,
+			index = Select(index, n_filenames, filenames, NULL, filesizes, NULL, NULL,
 			               NROWS, NCOLUMNS, 1, 2, 37 / NCOLUMNS, FALSE,
 			               select_dir ? "Space: select current directory" : NULL,
-			               &seltype, FALSE);
+			               &seltype, FALSE, FALSE);
 
 			if (index == -2) {
 				/* Tab = next favourite directory */

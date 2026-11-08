@@ -1363,9 +1363,6 @@ int PLATFORM_Keyboard(void)
 			case SDLK_n:
 				UI_alt_function = UI_MENU_ONLINE;
 				break;
-			case SDLK_h:
-				UI_alt_function = UI_MENU_ONLINE_HISTORY;
-				break;
 #endif
 			case SDLK_y:
 				UI_alt_function = UI_MENU_SYSTEM;

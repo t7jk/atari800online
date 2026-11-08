@@ -4466,8 +4466,7 @@ void UI_Run(void)
 	static UI_tMenuItem menu_array[] = {
 		UI_MENU_FILESEL_ACCEL(UI_MENU_RUN, "Run Atari Program", "Alt+R"),
 #ifdef HAVE_DOWNLOAD
-		UI_MENU_SUBMENU_ACCEL(UI_MENU_ONLINE, "Online Games (atarionline.pl)", "Alt+N"),
-		UI_MENU_SUBMENU_ACCEL(UI_MENU_ONLINE_HISTORY, "Previously Downloaded Games", "Alt+H"),
+		UI_MENU_SUBMENU_ACCEL(UI_MENU_ONLINE, "Online Games", "Alt+N"),
 #endif
 		UI_MENU_SUBMENU_ACCEL(UI_MENU_DISK, "Disk Management", "Alt+D"),
 		UI_MENU_SUBMENU_ACCEL(UI_MENU_CARTRIDGE, "Cartridge Management", "Alt+C"),
@@ -4572,10 +4571,6 @@ void UI_Run(void)
 #ifdef HAVE_DOWNLOAD
 		case UI_MENU_ONLINE:
 			if (ATARIONLINE_Browse())
-				done = TRUE;	/* reboot immediately */
-			break;
-		case UI_MENU_ONLINE_HISTORY:
-			if (ATARIONLINE_History())
 				done = TRUE;	/* reboot immediately */
 			break;
 #endif

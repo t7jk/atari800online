@@ -92,7 +92,6 @@ int GetRawKey(void);
 
 #define UI_MENU_VIDEO_RECORDING  24
 #define UI_MENU_ONLINE           25
-#define UI_MENU_ONLINE_HISTORY   26
 
 /* Structure of menu item. Each menu is just an array of items of this structure
    terminated by UI_MENU_END */
@@ -200,6 +199,8 @@ typedef void (*UI_fnInit)(void);
 #define UI_SELECT_POPUP   0x01
 #define UI_SELECT_DRAG    0x02
 #define UI_SELECT_JOY_BTN 0x04
+/* D / Delete / Backspace report UI_USER_DELETE; a key legend is shown at the bottom */
+#define UI_SELECT_DELETE  0x08
 
 /* Values returned via seltype */
 #define UI_USER_SELECT    1
