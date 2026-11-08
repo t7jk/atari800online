@@ -50,6 +50,9 @@
 #include "ui.h"
 #include "util.h"
 #include "ui_basic.h"
+#ifdef GUI_SDL
+#include "sdl/input.h"
+#endif
 
 static int initialised = FALSE;
 static UBYTE charset[1024];
@@ -254,15 +257,32 @@ static void BasicUIMessage(const char *msg, int waitforkey)
 		PLATFORM_DisplayScreen();
 }
 
-/* Ask before leaving the emulator from the main menu.
-   Returns TRUE if the user pressed Esc again. */
-int UI_BASIC_ConfirmExit(void)
+/* Called after Esc was pressed in the main menu. Returns TRUE if Esc is
+   held for UI_BASIC_EXIT_HOLD seconds (quit), FALSE as soon as it is
+   released (back to emulation). */
+#define UI_BASIC_EXIT_HOLD 2.0
+#define UI_BASIC_EXIT_HINT 0.3
+int UI_BASIC_EscapeHeldToExit(void)
 {
-	ClearRectangle(0x94, 0, 10, 39, 13);
-	Box(0x9a, 0x94, 0, 10, 39, 13);
-	CenterPrint(0x94, 0x9a, "Wcisnij ESC jeszcze raz aby zakonczyc.", 11);
-	CenterPrint(0x94, 0x9a, "Inny klawisz aby anulowac.", 12);
-	return GetKeyPress() == 0x1b;
+#ifdef GUI_SDL
+	double start = Util_time();
+	int shown = FALSE;
+	while (SDL_INPUT_IsEscapeHeld()) {
+		double held = Util_time() - start;
+		if (held >= UI_BASIC_EXIT_HOLD)
+			return TRUE;
+		if (held >= UI_BASIC_EXIT_HINT && !shown) {
+			ClearRectangle(0x94, 0, 10, 39, 13);
+			Box(0x9a, 0x94, 0, 10, 39, 13);
+			CenterPrint(0x94, 0x9a, "Trzymaj ESC aby zakonczyc emulator.", 11);
+			CenterPrint(0x94, 0x9a, "Pusc ESC aby wrocic do gry.", 12);
+			PLATFORM_DisplayScreen();
+			shown = TRUE;
+		}
+		Atari800_Sync();
+	}
+#endif /* GUI_SDL */
+	return FALSE;
 }
 
 #ifdef GUI_SDL

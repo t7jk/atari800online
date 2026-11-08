@@ -46,6 +46,9 @@ void SDL_INPUT_WriteConfig(FILE *fp);
 
 int SDL_INPUT_Initialise(int *argc, char *argv[]);
 void SDL_INPUT_Exit(void);
+
+/* TRUE while the Esc key is physically held down. */
+int SDL_INPUT_IsEscapeHeld(void);
 /* Restarts input after e.g. exiting the console monitor. */
 void SDL_INPUT_Restart(void);
 

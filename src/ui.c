@@ -4550,12 +4550,13 @@ void UI_Run(void)
 		case -2:
 			done = TRUE;
 			break;
-		case -1:				/* ESC key: confirm before quitting */
-			if (UI_BASIC_ConfirmExit()) {
+		case -1:				/* ESC key */
+			/* short press: back to emulation; held for 2 s: quit */
+			if (UI_BASIC_EscapeHeldToExit()) {
 				Atari800_Exit(FALSE);
 				exit(0);
 			}
-			/* any other key: stay in the main menu */
+			done = TRUE;
 			break;
 		case UI_MENU_DISK:
 			DiskManagement();

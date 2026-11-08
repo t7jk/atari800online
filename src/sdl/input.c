@@ -182,8 +182,22 @@ int OSK_enabled = 1;
 
 static void Init_SDL_Joysticks(void);
 
+static int get_key_state(const Uint8* kbhits, int keycode);
+
+int SDL_INPUT_IsEscapeHeld(void)
+{
+	SDL_PumpEvents();
+	return kbhits != NULL && get_key_state(kbhits, SDLK_ESCAPE);
+}
+
 static int get_key_state(const Uint8* kbhits, int keycode) {
 #if SDL2
+	/* Non-character keys (F1-F12, arrows, modifiers...) carry their
+	   scancode in the keycode. SDL_GetScancodeFromKey() is not used for
+	   them: with sdl2-compat on SDL3 it returns 0 for e.g. F2-F4, so
+	   START/SELECT/OPTION were never seen as held. */
+	if (keycode & SDLK_SCANCODE_MASK)
+		return kbhits[keycode & ~SDLK_SCANCODE_MASK];
 	return kbhits[SDL_GetScancodeFromKey((SDL_Keycode)keycode)];
 #else
 	return kbhits[keycode];
@@ -2901,13 +2915,23 @@ static int SDL_controller_kb(void)
 
 static int SDL_consol_keys(void)
 {
+	/* Start from the keyboard keys: this is called on frames without
+	   keyboard events, also while OPTION/SELECT/START is being held. */
 	INPUT_key_consol = INPUT_CONSOL_NONE;
+	if (kbhits != NULL && !UI_is_active) {
+		if (get_key_state(kbhits, KBD_OPTION))
+			INPUT_key_consol &= ~INPUT_CONSOL_OPTION;
+		if (get_key_state(kbhits, KBD_SELECT))
+			INPUT_key_consol &= ~INPUT_CONSOL_SELECT;
+		if (get_key_state(kbhits, KBD_START))
+			INPUT_key_consol &= ~INPUT_CONSOL_START;
+	}
 
 	/* Console START/SELECT/OPTION via joystick only makes sense for a
 	   joystick that is a real Atari port controller. The fallback stick
 	   (no port bound) is navigation-only and must not feed console keys
 	   into an emulated machine. */
-	if (osk_stick != &fallback_osk_stick)
+	if (osk_stick == NULL || osk_stick == &fallback_osk_stick)
 		return AKEY_NONE;
 
 #if OSK_BUTTON_START != OSK_BUTTON_LEAVE
@@ -2918,23 +2942,15 @@ static int SDL_consol_keys(void)
 			if (osk_joystick_button(OSK_BUTTON_START)) {
 				if (! ui_leave_in_progress)
 					INPUT_key_consol &= ~INPUT_CONSOL_START;
-				else
-					INPUT_key_consol |= INPUT_CONSOL_START;
 			}
-			else {
+			else
 				ui_leave_in_progress = FALSE;
-				INPUT_key_consol |= INPUT_CONSOL_START;
-			}
 
 			if (osk_joystick_button(OSK_BUTTON_SELECT))
 				INPUT_key_consol &= ~INPUT_CONSOL_SELECT;
-			else
-				INPUT_key_consol |= INPUT_CONSOL_SELECT;
 
 			if (osk_joystick_button(OSK_BUTTON_OPTION))
 				INPUT_key_consol &= ~INPUT_CONSOL_OPTION;
-			else
-				INPUT_key_consol |= INPUT_CONSOL_OPTION;
 		}
 	}
 	else {

@@ -7,8 +7,9 @@
    driver may call into this one to implement filtering */
 extern UI_tDriver UI_BASIC_driver;
 
-/* Shows "press Esc again to quit"; returns TRUE if Esc was pressed. */
-extern int UI_BASIC_ConfirmExit(void);
+/* After Esc in the main menu: TRUE if Esc is held for 2 s (quit),
+   FALSE once it is released (return to emulation). */
+extern int UI_BASIC_EscapeHeldToExit(void);
 
 /* for Windows CE and Dreamcast */
 #ifdef USE_UI_BASIC_ONSCREEN_KEYBOARD
