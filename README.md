@@ -11,6 +11,8 @@ emulator (Atari 8-bit computers and the 5200 console), enriched with an **online
 browser that downloads games directly from [atarionline.pl](https://atarionline.pl)**
 and starts them automatically. Everything else in the emulator works as in upstream Atari800.
 
+![Online Games browser](docs/online-browser.png)
+
 ### Why atarionline.pl?
 
 [atarionline.pl](https://atarionline.pl) is a Polish community catalogue of Atari 8-bit
@@ -91,6 +93,8 @@ affiliated with atarionline.pl.
 (komputery Atari 8-bit i konsola 5200) wzbogacony o **przeglądarkę gier online, która pobiera
 gry wprost z serwisu [atarionline.pl](https://atarionline.pl)** i automatycznie je uruchamia.
 Pozostałe funkcje emulatora działają tak jak w oryginalnym Atari800.
+
+![Online Games browser](docs/online-browser.png)
 
 ### Dlaczego atarionline.pl?
 
